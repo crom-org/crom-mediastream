@@ -1,0 +1,5 @@
+stream_url: "rtmp://localhost/live"
+stream_key: "test_key"
+video_dir: "./videos"
+resolution: "1280x720"
+fps: 30
