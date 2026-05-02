@@ -84,8 +84,8 @@ func (d *Daemon) Start() {
 	http.HandleFunc("/state", d.handleState)
 	http.HandleFunc("/command", d.handleCommand)
 
-	fmt.Println("Crom MediaStream Daemon rodando na porta 8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	fmt.Printf("Crom MediaStream Daemon rodando na porta %s...\n", d.cfg.Port)
+	log.Fatal(http.ListenAndServe(":"+d.cfg.Port, nil))
 }
 
 func (d *Daemon) stateMachine() {

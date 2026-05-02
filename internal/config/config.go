@@ -20,6 +20,7 @@ type Config struct {
 	LoopEnabled   bool `mapstructure:"loop"`
 	ChatEnabled   bool `mapstructure:"chat"`
 	ScrollEnabled bool `mapstructure:"scroll"`
+	Port          string `mapstructure:"port"`
 }
 
 func LoadConfig(configPath string) (*Config, error) {
@@ -36,6 +37,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	viper.SetDefault("video_dir", "./videos")
 	viper.SetDefault("resolution", "1280x720")
 	viper.SetDefault("fps", 30)
+	viper.SetDefault("port", "8080")
 	viper.SetDefault("auto_dj", false)
 	viper.SetDefault("loop", true)
 	viper.SetDefault("chat", false)

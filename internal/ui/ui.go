@@ -59,6 +59,7 @@ type errorMsg string
 type Model struct {
 	list        list.Model
 	state       daemon.DaemonState
+	Port        string
 	newsInput   textinput.Model
 	activeTab   int
 	cursor      int
@@ -68,7 +69,7 @@ type Model struct {
 	errStr      string
 }
 
-func sendCommand(action string, video string, news string, res string) {
+func (m Model) sendCommand(action string, video string, news string, res string) {
 	payload := daemon.CommandPayload{
 		Action:     action,
 		Video:      video,
@@ -76,14 +77,14 @@ func sendCommand(action string, video string, news string, res string) {
 		Resolution: res,
 	}
 	body, _ := json.Marshal(payload)
-	http.Post("http://localhost:8080/command", "application/json", bytes.NewBuffer(body))
+	http.Post(fmt.Sprintf("http://localhost:%s/command", m.Port), "application/json", bytes.NewBuffer(body))
 }
 
-func fetchStateCmd() tea.Cmd {
+func (m Model) fetchStateCmd() tea.Cmd {
 	return func() tea.Msg {
 		var state daemon.DaemonState
 		client := &http.Client{Timeout: 1 * time.Second}
-		resp, err := client.Get("http://localhost:8080/state")
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%s/state", m.Port))
 		if err != nil {
 			return errorMsg("Connection refused. Is the Daemon running?")
 		}
@@ -96,7 +97,7 @@ func fetchStateCmd() tea.Cmd {
 	}
 }
 
-func NewModel() Model {
+func NewModel(port string) Model {
 	l := list.New([]list.Item{}, itemDelegate{}, 40, 20)
 	l.Title = "FILA DE REPRODUÇÃO (SYNCED)"
 	l.SetShowStatusBar(false)
@@ -115,6 +116,7 @@ func NewModel() Model {
 	res := []string{"1920x1080", "1280x720", "854x480"}
 
 	return Model{
+		Port:        port,
 		list:        l,
 		newsInput:   ti,
 		resolutions: res,
@@ -125,7 +127,7 @@ func NewModel() Model {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		fetchStateCmd(),
+		m.fetchStateCmd(),
 		m.tick(),
 		textinput.Blink,
 	)
@@ -171,8 +173,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "up" || msg.String() == "down" || msg.String() == "tab" || msg.String() == "esc" {
 				m.newsInput.Blur()
 			} else if msg.String() == "enter" {
-				sendCommand("update_news", "", m.newsInput.Value(), "")
-				return m, fetchStateCmd()
+				m.sendCommand("update_news", "", m.newsInput.Value(), "")
+				return m, m.fetchStateCmd()
 			} else {
 				m.newsInput, cmd = m.newsInput.Update(msg)
 				return m, cmd
@@ -219,47 +221,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.resIndex < 0 {
 					m.resIndex = len(m.resolutions) - 1
 				}
-				sendCommand("set_resolution", "", "", m.resolutions[m.resIndex])
+				m.sendCommand("set_resolution", "", "", m.resolutions[m.resIndex])
 			}
 		case "right", "l":
 			if m.activeTab == 1 && m.cursor == 5 {
 				m.resIndex = (m.resIndex + 1) % len(m.resolutions)
-				sendCommand("set_resolution", "", "", m.resolutions[m.resIndex])
+				m.sendCommand("set_resolution", "", "", m.resolutions[m.resIndex])
 			}
 		case "enter", " ":
 			if m.activeTab == 1 {
 				if m.cursor == 0 {
-					sendCommand("toggle_autodj", "", "", "")
+					m.sendCommand("toggle_autodj", "", "", "")
 				} else if m.cursor == 1 {
-					sendCommand("toggle_loop", "", "", "")
+					m.sendCommand("toggle_loop", "", "", "")
 				} else if m.cursor == 2 {
-					sendCommand("toggle_chat", "", "", "")
+					m.sendCommand("toggle_chat", "", "", "")
 				} else if m.cursor == 3 {
-					sendCommand("toggle_scroll", "", "", "")
+					m.sendCommand("toggle_scroll", "", "", "")
 				}
-				return m, fetchStateCmd()
+				return m, m.fetchStateCmd()
 			}
 
 			if m.activeTab == 0 && msg.String() == "enter" {
 				i, ok := m.list.SelectedItem().(item)
 				if ok {
-					sendCommand("start", string(i), "", "")
-					return m, fetchStateCmd()
+					m.sendCommand("start", string(i), "", "")
+					return m, m.fetchStateCmd()
 				}
 			}
 
 		case "s":
 			if m.activeTab == 0 {
-				sendCommand("stop", "", "", "")
-				return m, fetchStateCmd()
+				m.sendCommand("stop", "", "", "")
+				return m, m.fetchStateCmd()
 			}
 
 		case "r":
-			return m, fetchStateCmd()
+			return m, m.fetchStateCmd()
 		}
 
 	case tickMsg:
-		return m, tea.Batch(m.tick(), fetchStateCmd())
+		return m, tea.Batch(m.tick(), m.fetchStateCmd())
 
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()

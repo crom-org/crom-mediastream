@@ -28,8 +28,10 @@ func main() {
 
 	var configPath string
 	var videoDir string
+	var port string
 	flag.StringVar(&configPath, "config", "", "Caminho para o arquivo YAML customizado (ex: config_prod.yaml)")
 	flag.StringVar(&videoDir, "videos", "", "Pasta de videos customizada")
+	flag.StringVar(&port, "port", "", "Porta HTTP do Daemon (ex: 8080)")
 	flag.Parse()
 
 	if isDaemon {
@@ -40,6 +42,9 @@ func main() {
 
 		if videoDir != "" {
 			cfg.VideoDir = videoDir
+		}
+		if port != "" {
+			cfg.Port = port
 		}
 
 		eng, err := engine.NewStreamEngine()
@@ -52,8 +57,16 @@ func main() {
 		d := daemon.NewDaemon(cfg, eng, q)
 		d.Start()
 	} else {
+		cfg, _ := config.LoadConfig(configPath)
+		if port != "" {
+			cfg.Port = port
+		}
+		if cfg.Port == "" {
+			cfg.Port = "8080"
+		}
+
 		client := http.Client{Timeout: 1 * time.Second}
-		resp, err := client.Get("http://localhost:8080/state")
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%s/state", cfg.Port))
 		if err != nil {
 			// Replica os argumentos originais para o daemon (ex: --config config_prod.yaml)
 			daemonArgs := []string{"daemon"}
@@ -65,7 +78,7 @@ func main() {
 			resp.Body.Close()
 		}
 
-		m := ui.NewModel()
+		m := ui.NewModel(cfg.Port)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 
 		if _, err := p.Run(); err != nil {
