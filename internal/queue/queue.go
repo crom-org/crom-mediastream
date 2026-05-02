@@ -3,6 +3,7 @@ package queue
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -31,6 +32,7 @@ func (q *VideoQueue) ListVideos() ([]string, error) {
 			}
 		}
 	}
+	sort.Strings(videos)
 	return videos, nil
 }
 
@@ -59,4 +61,32 @@ func (q *VideoQueue) WatchFolder(onChange func()) error {
 	}()
 
 	return watcher.Add(q.Dir)
+}
+
+func (q *VideoQueue) GetNextVideo(currentVideo string) (string, error) {
+	videos, err := q.ListVideos()
+	if err != nil {
+		return "", err
+	}
+
+	if len(videos) == 0 {
+		return "", nil
+	}
+
+	if currentVideo == "" {
+		return videos[0], nil
+	}
+
+	for i, v := range videos {
+		if v == currentVideo {
+			if i+1 < len(videos) {
+				return videos[i+1], nil
+			}
+			// Loop back to first video
+			return videos[0], nil
+		}
+	}
+
+	// Se o currentVideo não estiver na lista (foi apagado), retorna o primeiro
+	return videos[0], nil
 }

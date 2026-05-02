@@ -1,5 +1,12 @@
-stream_url: "rtmp://localhost/live"
-stream_key: "test_key"
+stream_url: "rtmp://live.twitch.tv/app"
+stream_key: "SUA_CHAVE_AQUI"
 video_dir: "./videos"
 resolution: "1280x720"
 fps: 30
+twitch_client_id: ""
+twitch_token: ""
+twitch_user_id: ""
+auto_dj: true
+loop: true
+chat: false
+scroll: true

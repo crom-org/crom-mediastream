@@ -30,3 +30,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Crom Mediastream Specifics
+config.yaml
+crom-mediastream
+videos/
+test_run.log
+config_prod.yaml
