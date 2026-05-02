@@ -50,6 +50,14 @@ type Daemon struct {
 }
 
 func NewDaemon(cfg *config.Config, eng *engine.StreamEngine, q *queue.VideoQueue) *Daemon {
+	// Garantir que os arquivos de runtime existam para o FFmpeg não dar crash
+	if _, err := os.Stat("chat_overlay.txt"); os.IsNotExist(err) {
+		os.WriteFile("chat_overlay.txt", []byte(""), 0644)
+	}
+	if _, err := os.Stat("scroll_text.txt"); os.IsNotExist(err) {
+		os.WriteFile("scroll_text.txt", []byte(""), 0644)
+	}
+
 	tAPI := api.NewTwitchAPI(cfg.TwitchClientID, cfg.TwitchToken, cfg.TwitchUserID)
 	cMon := api.NewChatMonitor("mrjcrom")
 
