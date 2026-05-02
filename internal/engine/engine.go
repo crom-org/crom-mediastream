@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -43,7 +44,17 @@ func (e *StreamEngine) StreamWithFade(currentPath, nextPath, streamURL string, o
 	e.Stop()
 
 	drawChat, drawScroll := getOverlayFilters()
-	filter := fmt.Sprintf("[0:v][1:v]xfade=transition=fade:duration=1:offset=%f[xfaded]; [0:a][1:a]acrossfade=d=1[a]; [xfaded]scale=%s,%s,%s[vout]", offset, opts.Resolution, drawChat, drawScroll)
+	
+	// Normaliza as duas mídias (Vídeo e Áudio) para evitar crash de timebase ou resolução no XFADE
+	v0 := fmt.Sprintf("[0:v]scale=%s,setsar=1,fps=30,format=yuv420p,settb=AVTB[v0]", opts.Resolution)
+	v1 := fmt.Sprintf("[1:v]scale=%s,setsar=1,fps=30,format=yuv420p,settb=AVTB[v1]", opts.Resolution)
+	a0 := "[0:a]aresample=48000[a0]"
+	a1 := "[1:a]aresample=48000[a1]"
+	
+	vFade := fmt.Sprintf("[v0][v1]xfade=transition=fade:duration=1:offset=%f[xfaded]", offset)
+	aFade := "[a0][a1]acrossfade=d=1[a]"
+	
+	filter := fmt.Sprintf("%s; %s; %s; %s; %s; %s; [xfaded]%s,%s[vout]", v0, v1, a0, a1, vFade, aFade, drawChat, drawScroll)
 
 	args := []string{
 		"-re",
@@ -54,11 +65,14 @@ func (e *StreamEngine) StreamWithFade(currentPath, nextPath, streamURL string, o
 		"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
 		"-maxrate", "3000k", "-bufsize", "6000k",
 		"-pix_fmt", "yuv420p", "-g", "60",
-		"-c:a", "aac", "-b:a", "128k",
+		"-c:a", "aac", "-b:a", "128k", "-ar", "48000",
 		"-f", "flv", streamURL,
 	}
 
 	cmd := exec.Command(e.FFmpegPath, args...)
+	logFile, _ := os.OpenFile("ffmpeg.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	cmd.Stderr = logFile
+	cmd.Stdout = logFile
 	e.CurrentCmd = cmd
 	return cmd
 }
@@ -68,7 +82,7 @@ func (e *StreamEngine) StreamSingle(videoDir, fileName, streamURL string, opts S
 	filePath := filepath.Join(videoDir, fileName)
 
 	drawChat, drawScroll := getOverlayFilters()
-	videoFilter := fmt.Sprintf("scale=%s,%s,%s", opts.Resolution, drawChat, drawScroll)
+	videoFilter := fmt.Sprintf("scale=%s,setsar=1,fps=30,format=yuv420p,%s,%s", opts.Resolution, drawChat, drawScroll)
 
 	args := []string{
 		"-re",
@@ -77,11 +91,14 @@ func (e *StreamEngine) StreamSingle(videoDir, fileName, streamURL string, opts S
 		"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
 		"-maxrate", "3000k", "-bufsize", "6000k",
 		"-pix_fmt", "yuv420p", "-g", "60",
-		"-c:a", "aac", "-b:a", "128k",
+		"-c:a", "aac", "-b:a", "128k", "-ar", "48000",
 		"-f", "flv", streamURL,
 	}
 
 	cmd := exec.Command(e.FFmpegPath, args...)
+	logFile, _ := os.OpenFile("ffmpeg.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	cmd.Stderr = logFile
+	cmd.Stdout = logFile
 	e.CurrentCmd = cmd
 	return cmd
 }
