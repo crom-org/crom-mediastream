@@ -126,4 +126,4 @@ Você também pode verificar o log completo das execuções em `tests/test_run.l
 ---
 
 ## 📄 Licença
-Distribuído sob os termos da licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
+Distribuído sob os termos da licença BSD 3-Clause. Veja o arquivo `LICENSE` para mais detalhes.
