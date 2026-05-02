@@ -37,3 +37,8 @@ crom-mediastream
 videos/
 test_run.log
 config_prod.yaml
+
+# Runtime logs & states
+ffmpeg.log
+chat_overlay.txt
+scroll_text.txt
