@@ -51,14 +51,14 @@ func (e *StreamEngine) StreamWithFade(currentPath, nextPath, streamURL string, o
 	a0 := "[0:a]aresample=48000[a0]"
 	a1 := "[1:a]aresample=48000[a1]"
 	
-	vFade := fmt.Sprintf("[v0][v1]xfade=transition=fade:duration=1:offset=%f[xfaded]", offset)
+	vFade := "[v0][v1]xfade=transition=fade:duration=1:offset=0[xfaded]"
 	aFade := "[a0][a1]acrossfade=d=1[a]"
 	
 	filter := fmt.Sprintf("%s; %s; %s; %s; %s; %s; [xfaded]%s,%s[vout]", v0, v1, a0, a1, vFade, aFade, drawChat, drawScroll)
 
 	args := []string{
 		"-re",
-		"-ss", fmt.Sprintf("%f", offset), "-i", currentPath,
+		"-ss", fmt.Sprintf("%f", offset), "-t", "1.0", "-i", currentPath,
 		"-re", "-i", nextPath,
 		"-filter_complex", filter,
 		"-map", "[vout]", "-map", "[a]",
