@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -47,6 +46,10 @@ type Daemon struct {
 	state     DaemonState
 	startTime time.Time
 	mu        sync.Mutex
+
+	// Controle do playback contínuo
+	stopCh    chan struct{}
+	isPlaying bool
 }
 
 func NewDaemon(cfg *config.Config, eng *engine.StreamEngine, q *queue.VideoQueue) *Daemon {
@@ -87,7 +90,8 @@ func NewDaemon(cfg *config.Config, eng *engine.StreamEngine, q *queue.VideoQueue
 }
 
 func (d *Daemon) Start() {
-	go d.stateMachine()
+	// Goroutine para atualizar elapsed time e playlist
+	go d.elapsedTicker()
 
 	http.HandleFunc("/state", d.handleState)
 	http.HandleFunc("/command", d.handleCommand)
@@ -96,7 +100,8 @@ func (d *Daemon) Start() {
 	log.Fatal(http.ListenAndServe(":"+d.cfg.Port, nil))
 }
 
-func (d *Daemon) stateMachine() {
+// elapsedTicker atualiza o tempo decorrido e a playlist a cada segundo
+func (d *Daemon) elapsedTicker() {
 	ticker := time.NewTicker(time.Second)
 	for range ticker.C {
 		d.mu.Lock()
@@ -105,45 +110,136 @@ func (d *Daemon) stateMachine() {
 			d.state.Elapsed = time.Since(d.startTime).Seconds()
 		}
 
-		if d.state.Streaming && d.state.AutoDJEnabled && d.state.Duration > 0 {
-			remaining := d.state.Duration - d.state.Elapsed
-
-			if remaining <= 2.0 && remaining > 0 {
-				nextVid, _ := d.queue.GetNextVideo(d.state.CurrentVideo)
-
-				if !d.state.LoopEnabled {
-					videos, _ := d.queue.ListVideos()
-					if len(videos) > 0 && nextVid == videos[0] {
-						nextVid = ""
-					}
-				}
-
-				if nextVid != "" && nextVid != d.state.CurrentVideo {
-					title := "Streaming: " + nextVid
-					go d.twitch.UpdateStreamMetadata(title)
-
-					currentPath := filepath.Join(d.cfg.VideoDir, d.state.CurrentVideo)
-					nextPath := filepath.Join(d.cfg.VideoDir, nextVid)
-					dur, _ := d.eng.GetVideoDuration(nextPath)
-
-					opts := engine.StreamOptions{Resolution: d.state.Resolution}
-					d.state.StatusMessage = fmt.Sprintf("AutoDJ: Fading to %s...", nextVid)
-
-					cmd := d.eng.StreamWithFade(currentPath, nextPath, d.cfg.GetFullStreamURL(), d.state.Elapsed, opts)
-					go cmd.Run()
-
-					d.state.CurrentVideo = nextVid
-					d.startTime = time.Now()
-					d.state.Duration = dur
-					d.state.Elapsed = 0
-				}
-			}
-		}
-
 		videos, _ := d.queue.ListVideos()
 		d.state.Playlist = videos
 
 		d.mu.Unlock()
+	}
+}
+
+// startContinuousPlayback inicia a goroutine de playback contínuo.
+// Cada vídeo toca inteiro, e ao terminar, o próximo começa imediatamente.
+// SEM matar o FFmpeg entre transições — gap mínimo de ~500ms.
+func (d *Daemon) startContinuousPlayback(startVideo string) {
+	// Se já está tocando, para primeiro
+	if d.isPlaying {
+		d.stopPlayback()
+	}
+
+	d.stopCh = make(chan struct{})
+	d.isPlaying = true
+
+	d.mu.Lock()
+	d.state.Streaming = true
+	d.state.StatusMessage = fmt.Sprintf("Starting continuous playback from %s...", startVideo)
+	d.mu.Unlock()
+
+	opts := engine.StreamOptions{Resolution: d.state.Resolution}
+	firstVideo := startVideo
+
+	getNextVideo := func(current string) (string, error) {
+		// Na primeira chamada, retorna o vídeo solicitado
+		if current == "" && firstVideo != "" {
+			v := firstVideo
+			firstVideo = "" // Consume o firstVideo
+			return v, nil
+		}
+
+		d.mu.Lock()
+		autoDJ := d.state.AutoDJEnabled
+		loopEnabled := d.state.LoopEnabled
+		d.mu.Unlock()
+
+		if !autoDJ {
+			// Sem AutoDJ, para após o vídeo atual
+			return "", nil
+		}
+
+		nextVid, err := d.queue.GetNextVideo(current)
+		if err != nil {
+			return "", err
+		}
+
+		// Se loop está desligado e voltamos ao primeiro, para
+		if !loopEnabled {
+			videos, _ := d.queue.ListVideos()
+			if len(videos) > 0 && nextVid == videos[0] && current != "" {
+				return "", nil
+			}
+		}
+
+		return nextVid, nil
+	}
+
+	onVideoStart := func(videoName string, duration float64) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+
+		d.state.CurrentVideo = videoName
+		d.state.Duration = duration
+		d.state.Elapsed = 0
+		d.state.Streaming = true
+		d.startTime = time.Now()
+		d.state.StatusMessage = fmt.Sprintf("▶ Playing: %s", videoName)
+
+		// Atualiza metadata da Twitch em background
+		title := "Streaming: " + videoName
+		go d.twitch.UpdateStreamMetadata(title)
+	}
+
+	onVideoEnd := func(videoName string) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.state.StatusMessage = fmt.Sprintf("✓ Finished: %s", videoName)
+		log.Printf("[Daemon] ✓ Vídeo finalizado: %s", videoName)
+	}
+
+	go func() {
+		d.eng.PlayContinuous(
+			d.cfg.VideoDir,
+			d.cfg.GetFullStreamURL(),
+			opts,
+			getNextVideo,
+			onVideoStart,
+			onVideoEnd,
+			d.stopCh,
+		)
+
+		// Playback terminou (playlist acabou ou stop recebido)
+		d.mu.Lock()
+		d.state.Streaming = false
+		d.state.CurrentVideo = ""
+		d.state.Duration = 0
+		d.state.Elapsed = 0
+		d.state.StatusMessage = "Playback ended."
+		d.isPlaying = false
+		d.mu.Unlock()
+		log.Printf("[Daemon] Playback contínuo encerrado.")
+	}()
+}
+
+// stopPlayback para o playback contínuo graciosamente
+func (d *Daemon) stopPlayback() {
+	if d.stopCh != nil {
+		close(d.stopCh)
+	}
+	// Espera até 5s para o playback parar
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-timeout:
+			d.eng.Stop() // Force stop
+			return
+		case <-ticker.C:
+			d.mu.Lock()
+			playing := d.isPlaying
+			d.mu.Unlock()
+			if !playing {
+				return
+			}
+		}
 	}
 }
 
@@ -168,19 +264,26 @@ func (d *Daemon) handleCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	switch payload.Action {
 	case "start":
 		if payload.Video != "" {
-			d.startVideo(payload.Video)
+			d.mu.Unlock()
+			d.startContinuousPlayback(payload.Video)
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 	case "stop":
-		d.eng.Stop()
+		d.mu.Unlock()
+		d.stopPlayback()
+		d.mu.Lock()
 		d.state.Streaming = false
 		d.state.CurrentVideo = ""
 		d.state.Duration = 0
 		d.state.StatusMessage = "Stream stopped."
+		d.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		return
 	case "toggle_autodj":
 		d.state.AutoDJEnabled = !d.state.AutoDJEnabled
 	case "toggle_loop":
@@ -214,32 +317,6 @@ func (d *Daemon) handleCommand(w http.ResponseWriter, r *http.Request) {
 		d.state.Resolution = payload.Resolution
 	}
 
+	d.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
-}
-
-func (d *Daemon) startVideo(videoName string) {
-	title := "Streaming: " + videoName
-	go d.twitch.UpdateStreamMetadata(title)
-
-	nextPath := filepath.Join(d.cfg.VideoDir, videoName)
-	dur, _ := d.eng.GetVideoDuration(nextPath)
-
-	opts := engine.StreamOptions{Resolution: d.state.Resolution}
-
-	if d.state.Streaming && d.state.CurrentVideo != "" {
-		d.state.StatusMessage = fmt.Sprintf("Fading to %s...", videoName)
-		currentPath := filepath.Join(d.cfg.VideoDir, d.state.CurrentVideo)
-		cmd := d.eng.StreamWithFade(currentPath, nextPath, d.cfg.GetFullStreamURL(), d.state.Elapsed, opts)
-		go cmd.Run()
-	} else {
-		d.state.StatusMessage = fmt.Sprintf("Starting %s...", videoName)
-		cmd := d.eng.StreamSingle(d.cfg.VideoDir, videoName, d.cfg.GetFullStreamURL(), opts)
-		go cmd.Run()
-	}
-
-	d.state.CurrentVideo = videoName
-	d.startTime = time.Now()
-	d.state.Duration = dur
-	d.state.Elapsed = 0
-	d.state.Streaming = true
 }

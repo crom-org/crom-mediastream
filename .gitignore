@@ -42,3 +42,4 @@ config_prod.yaml
 ffmpeg.log
 chat_overlay.txt
 scroll_text.txt
+monitor.sh
