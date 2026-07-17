@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/viper"
 )
@@ -27,10 +28,17 @@ func LoadConfig(configPath string) (*Config, error) {
 	if configPath != "" {
 		viper.SetConfigFile(configPath)
 	} else {
-		viper.SetConfigName("config")
+		// Tenta carregar o arquivo de produção primeiro por conveniência
 		viper.SetConfigType("yaml")
 		viper.AddConfigPath(".")
 		viper.AddConfigPath("./config")
+		
+		// Verifica se o config_prod.yaml existe
+		if _, err := os.Stat("config_prod.yaml"); err == nil {
+			viper.SetConfigName("config_prod")
+		} else {
+			viper.SetConfigName("config")
+		}
 	}
 
 	// Defaults

@@ -43,3 +43,8 @@ ffmpeg.log
 chat_overlay.txt
 scroll_text.txt
 monitor.sh
+upload_and_start.py
+
+ffmpeg_encoder.log
+.gitignore
+ffmpeg_master.log

@@ -30,7 +30,8 @@ func (t *TwitchAPI) UpdateStreamMetadata(title string) error {
 	url := fmt.Sprintf("https://api.twitch.tv/helix/channels?broadcaster_id=%s", t.BroadcasterID)
 	
 	body := map[string]interface{}{
-		"title": title,
+		"title":   title,
+		"game_id": "1469308723", // Categoria: Software and Game Development
 	}
 	jsonBody, _ := json.Marshal(body)
 

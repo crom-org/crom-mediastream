@@ -96,9 +96,21 @@ func (d *Daemon) Start() {
 	http.HandleFunc("/state", d.handleState)
 	http.HandleFunc("/command", d.handleCommand)
 
+	// Auto-start: se auto_dj estiver ativo e houver vídeos, começa a live automaticamente
+	if d.state.AutoDJEnabled {
+		videos, err := d.queue.ListVideos()
+		if err == nil && len(videos) > 0 {
+			log.Printf("[Daemon] Auto-DJ ativo. Iniciando live automaticamente com: %s", videos[0])
+			go d.startContinuousPlayback(videos[0])
+		} else {
+			log.Printf("[Daemon] Auto-DJ ativo mas nenhum vídeo encontrado na pasta.")
+		}
+	}
+
 	fmt.Printf("Crom MediaStream Daemon rodando na porta %s...\n", d.cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+d.cfg.Port, nil))
 }
+
 
 // elapsedTicker atualiza o tempo decorrido e a playlist a cada segundo
 func (d *Daemon) elapsedTicker() {
